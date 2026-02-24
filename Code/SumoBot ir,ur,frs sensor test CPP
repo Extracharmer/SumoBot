@@ -1,0 +1,61 @@
+#include <Wire.h>
+
+const int IR_PIN = 2;
+
+const int FSR_PIN = A0;
+
+const int TRIG_PIN = 8;
+const int ECHO_PIN = 9;
+
+void setup() {
+
+  Serial.begin(9600);
+
+  pinMode(IR_PIN, INPUT);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  Wire.begin();
+}
+
+// Ultrasonic function
+long readDistance() {
+
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 20000);
+
+  long distance = duration * 0.034 / 2;
+
+  return distance;
+}
+
+void loop() {
+
+  // IR
+  int ir = digitalRead(IR_PIN);
+
+  // FSR
+  int fsr = analogRead(FSR_PIN);
+
+  // Ultrasonic
+  long distance = readDistance();
+
+  Serial.print("IR: ");
+  Serial.print(ir);
+
+  Serial.print(" | FSR: ");
+  Serial.print(fsr);
+
+  Serial.print(" | Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  delay(100);
+}
