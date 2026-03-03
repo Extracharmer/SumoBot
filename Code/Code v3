@@ -1,0 +1,172 @@
+#include <motor.h>
+
+const int IR_PIN = 8;
+const int IR_PIN2 = 13;
+const int IR_PIN3 = A5;
+
+const int FSR_PIN = A0;
+const int TRIG_PIN = 3;
+const int ECHO_PIN = 2;
+
+const int motorRIN1Pin = 10;
+const int motorRIN2Pin = 12;
+const int motorRENPin = 11;
+
+const int motorLIN1Pin = 6;
+const int motorLIN2Pin = 7;
+const int motorLENPin = 5;
+
+const int fwSpeed = 255;       // full forward
+const int fwTurnSpeed = 200;   // spin in place
+const int softTurnSpeed = 150; // small turns
+
+enum State {Initialize, Domain, Search, Kill, Edge};
+State currentState = Initialize;
+
+unsigned long initializeStart = 0;
+const unsigned long initializeDelay = 5000;
+
+int searchStep = 0;
+unsigned long searchTimer = 0;
+const unsigned long scanTime = 3000;
+const unsigned long moveTime = 800;
+
+int edgeStep = 0;
+unsigned long edgeTimer = 0;
+const unsigned long reverseTime = 400;
+const unsigned long turnTime = 350;
+
+Motor rightMotor(motorRIN1Pin, motorRIN2Pin, motorRENPin);
+Motor leftMotor(motorLIN1Pin, motorLIN2Pin, motorLENPin);
+
+long readDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH, 20000);
+  long distance = duration * 0.034 / 2;
+  return distance;
+}
+
+void setup() {
+  Serial.begin(9600);
+  //Wire.begin();
+
+  pinMode(IR_PIN, INPUT_PULLUP);
+  pinMode(IR_PIN2, INPUT_PULLUP);
+  pinMode(IR_PIN3, INPUT_PULLUP);
+  pinMode(FSR_PIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  initializeStart = millis();
+}
+
+void loop() {
+
+  int ir = digitalRead(IR_PIN);
+  int ir2 = digitalRead(IR_PIN2);
+  int ir3 = digitalRead(IR_PIN3);
+
+  int fsr = analogRead(FSR_PIN);
+  long distance = readDistance();
+
+
+  switch(currentState){
+
+    case Initialize:
+      Serial.println("initializing");
+      leftMotor.brake();
+      rightMotor.brake();
+      delay(5000);
+      currentState = Search;
+      break;
+      
+
+    case Search:
+      Serial.println("searching");
+
+      if (ir == LOW || ir2 == LOW || ir3 == LOW) { currentState = Edge; break;}
+      else{
+      leftMotor.forward(125);
+      rightMotor.backward(125);
+
+      }
+      if (distance > 0 && distance < 15) {
+        Serial.println("target locked");
+        currentState = Kill;
+        break;
+      }
+      break;
+
+    case Edge:
+
+  Serial.println("EDGE MODE");
+
+  // Step 0: Entering edge state
+  if (edgeStep == 0) {
+    if (ir2 == LOW || ir3 == LOW) {   // front sensors detect edge
+      edgeStep = 1;
+    }
+  }
+
+  // Step 1: Spin until back sees edge
+  else if (edgeStep == 1) {
+
+    leftMotor.forward(200);
+    rightMotor.backward(200);
+
+    if (ir == LOW) {   // back sensor detects edge
+      edgeStep = 2;
+    }
+  }
+
+  // Step 2: Drive forward until fully safe
+  else if (edgeStep == 2) {
+
+    leftMotor.forward(200);
+    rightMotor.forward(200);
+
+    if (ir == HIGH && ir2 == HIGH && ir3 == HIGH) {
+      edgeStep = 0;
+      currentState = Search;
+    }
+  }
+
+  break;
+
+
+    /*case Edge:
+      
+      Serial.println("I'M EDGING IT. I'M EDGING IT!");
+      leftMotor.brake();
+      rightMotor.brake();
+      if (ir2 == HIGH || ir3 == HIGH) {
+        leftMotor.forward(200);
+        rightMotor.backward(200);
+      }
+      else if (ir == HIGH) {
+        leftMotor.forward(255);
+        rightMotor.forward(255);
+      }
+      else if (ir == LOW && ir2 == LOW && ir3 == LOW) {currentState = Search;}
+      break;*/
+
+    case Kill:
+      if (ir == LOW || ir2 == LOW || ir3 == LOW) { currentState = Edge; break;}
+      leftMotor.forward(180);
+      rightMotor.forward(180);
+      Serial.println("Eliminating target");
+      Serial.print("distance:");
+      Serial.println(distance);
+
+      if (distance > 25){
+        currentState = Search;
+      }
+
+      break;
+
+  }
+}
