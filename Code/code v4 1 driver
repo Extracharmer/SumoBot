@@ -1,0 +1,166 @@
+#include <motor.h>
+
+
+const int IR_BACK  = 8;
+const int IR_LEFT  = 13;
+const int IR_RIGHT = A5;
+
+const int TRIG_PIN = 3;
+const int ECHO_PIN = 2;
+
+const int motorRIN1Pin = 10;
+const int motorRIN2Pin = 12;
+const int motorRENPin  = 11;
+
+const int motorLIN1Pin = 6;
+const int motorLIN2Pin = 7;
+const int motorLENPin  = 5;
+
+
+const int SEARCH_SPEED = 130;
+const int ATTACK_SPEED = 200;
+const int SPIN_SPEED   = 200;
+
+
+enum State { Initialize, Search, Attack, Edge };
+State currentState = Initialize;
+
+
+unsigned long initializeStart = 0;
+const unsigned long initializeDelay = 5000;
+
+
+int edgeStep = 0;
+
+Motor rightMotor(motorRIN1Pin, motorRIN2Pin, motorRENPin);
+Motor leftMotor(motorLIN1Pin, motorLIN2Pin, motorLENPin);
+
+
+long readDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 20000);
+  if (duration == 0) return 0;
+
+  return duration * 0.034 / 2;
+}
+
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(IR_BACK, INPUT);
+  pinMode(IR_LEFT, INPUT);
+  pinMode(IR_RIGHT, INPUT);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  initializeStart = millis();
+}
+
+
+void loop() {
+
+  int irBack  = digitalRead(IR_BACK);
+  int irLeft  = digitalRead(IR_LEFT);
+  int irRight = digitalRead(IR_RIGHT);
+
+  long distance = readDistance();
+
+
+  if (irBack == LOW || irLeft == LOW || irRight == LOW) {
+    if (currentState != Edge) {
+      edgeStep = 0;
+      currentState = Edge;
+    }
+  }
+
+  switch (currentState) {
+
+
+    case Initialize:
+      leftMotor.brake();
+      rightMotor.brake();
+
+      if (millis() - initializeStart >= initializeDelay) {
+        currentState = Search;
+      }
+      break;
+
+
+    case Search:
+      Serial.println("SEARCH");
+
+      // Spin to look for opponent
+      leftMotor.forward(SEARCH_SPEED);
+      rightMotor.backward(SEARCH_SPEED);
+
+      if (distance > 0 && distance < 20) {
+        currentState = Attack;
+      }
+      break;
+
+
+    case Attack:
+      Serial.println("ATTACK");
+
+      leftMotor.forward(ATTACK_SPEED);
+      rightMotor.forward(ATTACK_SPEED);
+
+
+      if (distance == 0 || distance > 30) {
+        currentState = Search;
+      }
+      break;
+
+
+    case Edge:
+      Serial.println("EDGE");
+
+
+      if (edgeStep == 0) {
+
+
+        if (irLeft == LOW) {
+          leftMotor.backward(SPIN_SPEED);
+          rightMotor.forward(SPIN_SPEED);
+        }
+
+        else if (irRight == LOW) {
+          leftMotor.forward(SPIN_SPEED);
+          rightMotor.backward(SPIN_SPEED);
+        }
+
+
+        else if (irBack == LOW) {
+          edgeStep = 1;
+        }
+
+        if (irLeft == LOW || irRight == LOW) {
+          if (irBack == LOW) {
+            edgeStep = 1;
+          }
+        }
+      }
+
+
+      else if (edgeStep == 1) {
+
+        leftMotor.forward(ATTACK_SPEED);
+        rightMotor.forward(ATTACK_SPEED);
+
+
+        if (irBack == HIGH && irLeft == HIGH && irRight == HIGH) {
+          edgeStep = 0;
+          currentState = Search;
+        }
+      }
+
+      break;
+  }
+}
