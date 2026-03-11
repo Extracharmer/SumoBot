@@ -1,0 +1,140 @@
+#include <motor.h>
+
+const int IR_RIGHT = 8;
+const int IR_LEFT  = 13;
+const int IR_BACK  = 4;
+
+const int TRIG_PIN = 3;
+const int ECHO_PIN = 2;
+
+const int motorRIN1Pin = 10;
+const int motorRIN2Pin = 12;
+const int motorRENPin  = 11;
+
+const int motorLIN1Pin = 6;
+const int motorLIN2Pin = 7;
+const int motorLENPin  = 5;
+
+const int TROLL_SPEED = 180;       // cruising speed
+const int EDGE_AVOID_SPEED = 200;  // reverse speed
+const int OPPO_AVOID_SPEED = 220;  // speed to avoid opponent
+
+enum TrollState { Initialize, Wander, EdgeAvoid, Spin, OpponentAvoid };
+TrollState trollState = Initialize;
+
+Motor rightMotor(motorRIN1Pin, motorRIN2Pin, motorRENPin);
+Motor leftMotor(motorLIN1Pin, motorLIN2Pin, motorLENPin);
+
+unsigned long stateStart = 0;
+const unsigned long initializeDelay = 5000; // 5 seconds for initialize
+const unsigned long edgeTime = 800;         // reverse/avoid time
+
+unsigned long lastPing = 0;
+const unsigned long pingInterval = 50;
+long distance = 0;
+
+long readDistance() {
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    long duration = pulseIn(ECHO_PIN, HIGH, 4000);
+    if (duration == 0) return 0;
+    return duration * 0.034 / 2;
+}
+
+void setup() {
+    Serial.begin(9600);
+
+    pinMode(IR_BACK, INPUT);
+    pinMode(IR_LEFT, INPUT);
+    pinMode(IR_RIGHT, INPUT);
+
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    stateStart = millis();
+}
+
+void loop() {
+    int irBack  = digitalRead(IR_BACK);
+    int irLeft  = digitalRead(IR_LEFT);
+    int irRight = digitalRead(IR_RIGHT);
+
+    if (millis() - lastPing >= pingInterval) {
+        distance = readDistance();
+        lastPing = millis();
+    }
+
+    switch (trollState) {
+
+        case Initialize:
+            Serial.println("Initializing...");
+            leftMotor.brake();
+            rightMotor.brake();
+
+            if (millis() - stateStart >= initializeDelay) {
+                trollState = Wander;
+                stateStart = millis();
+            }
+            break;
+
+        case Wander:
+            leftMotor.forward(TROLL_SPEED);
+            rightMotor.forward(TROLL_SPEED - 40);
+
+            if (irLeft == LOW || irRight == LOW || irBack == LOW) {
+                Serial.println("Edge detected, avoiding...");
+                trollState = EdgeAvoid;
+                stateStart = millis();
+            }
+            else if (distance > 0 && distance < 20) {
+                Serial.println("Opponent detected, avoiding...");
+                trollState = OpponentAvoid;
+                stateStart = millis();
+            }
+            break;
+
+        case EdgeAvoid:
+            if (irLeft == LOW) {
+                leftMotor.backward(EDGE_AVOID_SPEED);
+                rightMotor.forward(EDGE_AVOID_SPEED);
+            }
+            else if (irRight == LOW) {
+                leftMotor.forward(EDGE_AVOID_SPEED);
+                rightMotor.backward(EDGE_AVOID_SPEED);
+            }
+            else {
+                leftMotor.backward(EDGE_AVOID_SPEED);
+                rightMotor.backward(EDGE_AVOID_SPEED);
+            }
+
+            if (millis() - stateStart >= edgeTime) {
+                trollState = Spin;
+                stateStart = millis();
+            }
+            break;
+
+        case OpponentAvoid:
+            if (distance > 0 && distance < 20) {
+                leftMotor.backward(OPPO_AVOID_SPEED);
+                rightMotor.backward(OPPO_AVOID_SPEED);
+            }
+            else {
+                trollState = Wander;
+                stateStart = millis();
+            }
+            break;
+
+        case Spin:
+            leftMotor.forward(TROLL_SPEED);
+            rightMotor.backward(TROLL_SPEED);
+
+            if (millis() - stateStart >= edgeTime + 600) {
+                trollState = Wander;
+                stateStart = millis();
+            }
+            break;
+    }
+}
