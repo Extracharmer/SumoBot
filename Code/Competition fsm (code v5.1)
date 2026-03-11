@@ -1,0 +1,152 @@
+#include <motor.h>
+
+const int IR_RIGHT = 8;
+const int IR_LEFT = 13;
+const int IR_BACK = 4;
+
+const int TRIG_PIN = 3;
+const int ECHO_PIN = 2;
+
+const int motorRIN1Pin = 10;
+const int motorRIN2Pin = 12;
+const int motorRENPin = 11;
+
+const int motorLIN1Pin = 6;
+const int motorLIN2Pin = 7;
+const int motorLENPin = 5;
+
+const int SEARCH_SPEED = 160; //160
+const int ATTACK_SPEED = 255; //200
+
+enum State { Initialize, Search, Attack, Edge };
+State currentState = Initialize;
+
+unsigned long initializeStart = 0;
+const unsigned long initializeDelay = 5500;
+
+unsigned long edgeReverseStart = 0;
+const unsigned long edgeReverseTime = 1500;
+
+unsigned long lastPing = 0;
+const unsigned long pingInterval = 50; // ping every 50 ms
+long distance = 0;
+
+int edgeStep = 0;
+
+Motor rightMotor(motorRIN1Pin, motorRIN2Pin, motorRENPin);
+Motor leftMotor(motorLIN1Pin, motorLIN2Pin, motorLENPin);
+
+long readDistance() {
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    long duration = pulseIn(ECHO_PIN, HIGH, 4000);
+    if (duration == 0) return 0;
+
+    return duration * 0.034 / 2;
+}
+
+void setup() {
+    Serial.begin(9600);
+
+    pinMode(IR_BACK, INPUT);
+    pinMode(IR_LEFT, INPUT);
+    pinMode(IR_RIGHT, INPUT);
+
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    initializeStart = millis();
+}
+
+void loop() {
+    int irBack = digitalRead(IR_BACK);
+    int irLeft = digitalRead(IR_LEFT);
+    int irRight = digitalRead(IR_RIGHT);
+
+    if (currentState != Edge && millis() - lastPing >= pingInterval) {
+        distance = readDistance();
+        lastPing = millis();
+    }
+
+    if (currentState != Initialize && currentState != Edge &&
+        (irBack == LOW || irLeft == LOW || irRight == LOW)) {
+        edgeStep = 0;
+        currentState = Edge;
+    }
+
+    switch (currentState) {
+
+        case Initialize:
+            Serial.println("initializing");
+            leftMotor.brake();
+            rightMotor.brake();
+            if (millis() - initializeStart >= initializeDelay) {
+                currentState = Search;
+            }
+            break;
+
+        case Search:
+            Serial.println("Searching");
+            // Spin to look for opponent
+            leftMotor.forward(SEARCH_SPEED);
+            rightMotor.backward(SEARCH_SPEED);
+            if (distance > 0 && distance < 35) {
+                currentState = Attack;
+            }
+            break;
+
+        case Attack:
+            Serial.println("Attacking");
+            Serial.print("Distance: ");
+            Serial.println(distance);
+            leftMotor.forward(ATTACK_SPEED);
+            rightMotor.forward(ATTACK_SPEED);
+            if (distance == 0 || distance > 30) {
+                currentState = Search;
+            }
+            break;
+
+        case Edge:
+            // Serial.println("Edge detected");
+
+            if (edgeStep == 0) {
+                if (irLeft == LOW || irRight == LOW) {
+                    Serial.println("Front Edge detected");
+                    leftMotor.backward(ATTACK_SPEED);
+                    rightMotor.backward(ATTACK_SPEED);
+                    edgeReverseStart = millis();
+                    edgeStep = 1;
+                }
+                else if (irBack == LOW) {
+                    Serial.println("Back Edge detected");
+                    leftMotor.forward(ATTACK_SPEED);
+                    rightMotor.forward(ATTACK_SPEED);
+                    edgeReverseStart = millis();
+                    edgeStep = 2;
+                }
+            }
+            else if (edgeStep == 1) {
+                leftMotor.backward(ATTACK_SPEED);
+                rightMotor.backward(ATTACK_SPEED);
+                if (millis() - edgeReverseStart >= edgeReverseTime) {
+                    Serial.println("reversing complete");
+                    edgeStep = 0;
+                    currentState = Search;
+                }
+            }
+            else if (edgeStep == 2) {
+                leftMotor.forward(ATTACK_SPEED);
+                rightMotor.forward(ATTACK_SPEED);
+                if (millis() - edgeReverseStart >= edgeReverseTime) {
+                    Serial.println("back edge evade complete");
+                    edgeStep = 0;
+                    currentState = Search;
+                }
+            }
+            break;
+    }
+}
